@@ -1,0 +1,90 @@
+library(dplyr)
+library(rpart)
+library(randomForest)
+library(caret)
+library(ggplot2)
+library(reshape2)
+library(readxl)
+
+inmuebles <- read_excel("D:/Proyectos R/ENTREGABLE02/Entregable.xlsx")
+head(inmuebles)
+colnames(inmuebles)
+
+inmuebles$ubicacion <- as.factor(inmuebles$ubicacion)
+inmuebles$tipo_propiedad <- as.factor(inmuebles$tipo_propiedad)
+inmuebles$precio <- as.numeric(inmuebles$precio)
+inmuebles <- inmuebles[!is.na(inmuebles$precio), ]
+
+
+inmuebles$categoria_precio <- cut(inmuebles$precio,
+                                  breaks = quantile(inmuebles$precio, probs = c(0, 0.33, 0.66, 1)),
+                                  labels = c("Bajo", "Medio", "Alto"),
+                                  include.lowest = TRUE)
+
+
+set.seed(123)
+train_index <- createDataPartition(inmuebles$categoria_precio, p = 0.9, list = FALSE)
+train_data <- inmuebles[train_index, ]
+test_data <- inmuebles[-train_index, ]
+
+
+# Modelo de Árbol de Decisión para clasificar categoría de precio
+modelo_arbol <- rpart(categoria_precio ~ ubicacion + tipo_propiedad + metros_cuadrados + habitaciones,
+                      data = train_data, method = "class")
+
+
+
+# Predicciones 
+predicciones_arbol <- predict(modelo_arbol, test_data, type = "class")
+cm_arbol <- confusionMatrix(predicciones_arbol, test_data$categoria_precio)
+
+precision_arbol <- cm_arbol$byClass['Pos Pred Value']
+sensibilidad_arbol <- cm_arbol$byClass['Sensitivity']
+especificidad_arbol <- cm_arbol$byClass['Specificity']
+f1_arbol <- 2 * (precision_arbol * sensibilidad_arbol) / (precision_arbol + sensibilidad_arbol)
+
+
+
+# Modelo Random Forest 
+set.seed(123)
+modelo_rf <- randomForest(categoria_precio ~ ubicacion + tipo_propiedad + metros_cuadrados + habitaciones,
+                          data = train_data, ntree = 100, mtry = 2)
+
+
+predicciones_rf <- predict(modelo_rf, test_data)
+cm_rf <- confusionMatrix(predicciones_rf, test_data$categoria_precio)
+
+precision_rf <- cm_rf$byClass['Pos Pred Value']
+sensibilidad_rf <- cm_rf$byClass['Sensitivity']
+especificidad_rf <- cm_rf$byClass['Specificity']
+f1_rf <- 2 * (precision_rf * sensibilidad_rf) / (precision_rf + sensibilidad_rf)
+
+
+
+
+
+
+resultados <- data.frame(
+  Modelo = c("Árbol de Decisión", "Random Forest"),
+  Precisión = c(precision_arbol, precision_rf),
+  Sensibilidad = c(sensibilidad_arbol, sensibilidad_rf),
+  Especificidad = c(especificidad_arbol, especificidad_rf),
+  F1_Score = c(f1_arbol, f1_rf)
+)
+
+print("Resultados del Modelo:")
+print(resultados)
+
+
+cm_rf_table <- as.data.frame(cm_rf$table)
+cm_rf_long <- melt(cm_rf_table)
+
+
+
+ggplot(cm_rf_long, aes(Reference, Prediction, fill = value)) +
+  geom_tile(color = "white") +
+  scale_fill_gradient(low = "lightblue", high = "blue") +
+  labs(title = "Matriz de Confusión para Random Forest (Mapa de Calor)",
+       x = "Valor Real", y = "Predicción del Modelo") +
+  geom_text(aes(label = value), color = "white", size = 4) +
+  theme_minimal()
